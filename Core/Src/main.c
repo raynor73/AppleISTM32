@@ -32,7 +32,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define ROM_BASE_ADDRESS 0xff00
-#define RAM_SIZE 0x1000
+#define RAM_SIZE 0x0c00//0x1000
 #define BASIC_ROM_BASE_ADDRESS 0xe000
 //#define BASIC_ROM_SIZE 4096
 
@@ -42,6 +42,7 @@
 #define DSP_CONTROL_REGISTER_PORT_ADDRESS 0xd013
 
 #define UART_RX_BUFFER_SIZE 1
+#define CIRCULAR_BUFFER_SIZE 1024
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -334,7 +335,10 @@ static const uint8_t basicRom[]  = {
 static uint8_t ram[RAM_SIZE];
 
 static uint8_t uartRxBuffer[UART_RX_BUFFER_SIZE];
-static volatile int isUartDataReceived = 0;
+
+static volatile uint16_t indexToReadFrom = 0;
+static volatile uint16_t indexToWriteTo = 0;
+static uint8_t circularBuffer[CIRCULAR_BUFFER_SIZE];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -360,14 +364,26 @@ uint8_t read6502(uint16_t address)
 	} else if (address < RAM_SIZE) {
 		return ram[address];
 	} else if (address == KBD_DATA_PORT_ADDRESS) {
-		isUartDataReceived = 0;
-		return 0x80 | uartRxBuffer[0];
+		if (indexToReadFrom != indexToWriteTo) {
+			uint8_t value = circularBuffer[indexToReadFrom++];
+			if (indexToReadFrom >= CIRCULAR_BUFFER_SIZE) {
+				indexToReadFrom = 0;
+			}
+			return 0x80 | value;
+		} else {
+			return 0x00;
+		}
 	} else if (address == KBD_CONTROL_REGISTER_PORT_ADDRESS) {
-		if (isUartDataReceived) {
+		if (indexToReadFrom != indexToWriteTo) {
 			return 0x80;
 		} else {
 			return 0x00;
 		}
+		/*if (isUartDataReceived) {
+			return 0x80;
+		} else {
+			return 0x00;
+		}*/
 	} else {
 		// TBD
 		return 0x00;
@@ -393,8 +409,11 @@ void write6502(uint16_t address, uint8_t value)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	isUartDataReceived = 1;
 	HAL_UART_Receive_IT(&huart1, uartRxBuffer, 1);
+	circularBuffer[indexToWriteTo++] = uartRxBuffer[0];
+	if (indexToWriteTo >= CIRCULAR_BUFFER_SIZE) {
+		indexToWriteTo = 0;
+	}
 }
 /* USER CODE END 0 */
 
